@@ -5,14 +5,6 @@ from django.contrib.auth.models import AbstractUser
 
 
 class User(AbstractUser):
-    """
-    Custom user model. Inheriting from AbstractUser gives us all standard
-    Django fields (username, email, password, etc.) while allowing us to
-    extend freely later (e.g. phone number, profile picture).
-
-    Always define AUTH_USER_MODEL = 'users.User' in settings BEFORE
-    the first migration — changing it later is a painful migration nightmare.
-    """
 
     email = models.EmailField(unique=True)
     phone_number = models.CharField(max_length=20, blank=True)

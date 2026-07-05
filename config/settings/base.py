@@ -110,7 +110,28 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    "EXCEPTION_HANDLER": "apps.events.exceptions.custom_exception_handler",
 }
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "TicketPulse API",
+    "DESCRIPTION": (
+        "High-performance Event Ticketing API with concurrency control, "
+        "Redis caching, and async task processing. "
+        "Built with Django Rest Framework, PostgreSQL, Redis, "
+    ),
+    "VERSION": "1.0.0",
+    "CONTACT": {
+        "name": "Abinash Bhattarai",
+        "email": "abinash@ticketpulse.com",
+    },
+    "LICENSE": {
+        "name": "MIT License",
+    },
+    "SERVE_INCLUDE_SCHEMA": False,
+    "COMPONENT_SPLIT_REQUEST": True,
+}
+
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

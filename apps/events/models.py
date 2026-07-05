@@ -8,19 +8,10 @@ from apps.users.models import User
 
 # Create your models here.
 
-
 logger = logging.getLogger(__name__)
 
 
 class Event(models.Model):
-    """
-    Represents a ticketed event.
-
-    available_tickets is denormalized (could be computed from Ticket
-    queryset) but storing it directly makes the GET /events/ endpoint
-    cache-friendly and avoids expensive COUNT queries under high load.
-    We keep it in sync via select_for_update in the booking flow (Phase 2).
-    """
 
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
@@ -44,18 +35,6 @@ class Event(models.Model):
 
 
 class Ticket(models.Model):
-    """
-    Represents a single seat/ticket for an event.
-
-    Status lifecycle:
-      AVAILABLE → RESERVED (booking initiated, 10-min hold)
-      RESERVED  → SOLD      (payment confirmed)
-      RESERVED  → AVAILABLE (booking expired, cleaned up by Celery Beat)
-
-    The db_index=True on status is critical — Celery Beat's cleanup
-    query does: Ticket.objects.filter(status='RESERVED', booking__status='PENDING')
-    Without an index this is a full table scan at scale.
-    """
 
     class Status(models.TextChoices):
         AVAILABLE = "AVAILABLE", "Available"
@@ -86,17 +65,6 @@ class Ticket(models.Model):
 
 
 class Booking(models.Model):
-    """
-    Links a user to one or more tickets for an event.
-
-    Status lifecycle:
-      PENDING   → CONFIRMED (payment webhook received)
-      PENDING   → EXPIRED   (Celery Beat cleanup after 10 minutes)
-
-    total_price is stored explicitly (not computed) so historical
-    bookings reflect the price at time of purchase, even if ticket
-    prices change later.
-    """
 
     class Status(models.TextChoices):
         PENDING = "PENDING", "Pending"

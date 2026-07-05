@@ -24,14 +24,8 @@ class EventSerializer(serializers.ModelSerializer):
         ]
 
 
-class BookingCreateSerializer(serializers.Serializer):
-    """
-    Input serializer for POST /api/v1/bookings/
-
-    We use a plain Serializer (not ModelSerializer) because the booking
-    creation logic is complex — it spans multiple models, involves locking,
-    and computes total_price dynamically. ModelSerializer would fight us here.
-    """
+class BookingCreateSerializer(serializers.Serializer): 
+   
 
     event_id = serializers.IntegerField()
     ticket_ids = serializers.ListField(
@@ -60,7 +54,7 @@ class BookingCreateSerializer(serializers.Serializer):
 
 
 class BookingSerializer(serializers.ModelSerializer):
-    """Output serializer — what we return after a successful booking."""
+    
 
     tickets = TicketSerializer(many=True, read_only=True)
     event = EventSerializer(read_only=True)

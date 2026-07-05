@@ -1,15 +1,18 @@
-from django.shortcuts import render
-
-# Create your views here.
 import logging
+from datetime import timedelta
 
+from django.core.cache import cache
 from django.db import transaction, OperationalError
+from django.utils import timezone
+from drf_spectacular.utils import extend_schema, OpenApiExample
 from rest_framework import status
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .exceptions import ConflictError
 from .models import Booking, Event, Ticket
 from .serializers import (
     BookingCreateSerializer,
@@ -19,50 +22,70 @@ from .serializers import (
 
 logger = logging.getLogger(__name__)
 
+EVENTS_CACHE_KEY = "ticketpulse:events:list"
+EVENTS_CACHE_TTL = 60 * 15  # 15 minutes
+
 
 class EventListView(APIView):
     """
     GET /api/v1/events/
-    Returns all upcoming events.
-    Phase 3 will add Redis caching here.
+
+    Returns list of all events using Redis cache-aside pattern.
+    Cache MISS → query PostgreSQL → store in Redis → return
+    Cache HIT  → return from Redis (no DB query)
     """
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(responses=EventSerializer(many=True))
     def get(self, request: Request) -> Response:
+        # Step 1: Check Redis first
+        cached_data = cache.get(EVENTS_CACHE_KEY)
+        if cached_data is not None:
+            logger.debug("Cache HIT — returning events from Redis")
+            return Response(cached_data)
+
+        # Step 2: Cache MISS — query PostgreSQL
+        logger.debug("Cache MISS — querying PostgreSQL")
         events = Event.objects.all()
         serializer = EventSerializer(events, many=True)
-        return Response(serializer.data)
+        data = serializer.data
+
+        # Step 3: Store in Redis for next request
+        cache.set(EVENTS_CACHE_KEY, data, timeout=EVENTS_CACHE_TTL)
+        logger.debug(
+            "Stored events in Redis cache (TTL: %s seconds)",
+            EVENTS_CACHE_TTL,
+        )
+
+        return Response(data)
 
 
 class BookingCreateView(APIView):
     """
     POST /api/v1/bookings/
 
-    The critical endpoint. Handles 1000 simultaneous requests
-    for the same seats without ever producing a double-booking.
-
-    The mechanism:
-      1. transaction.atomic()    — wraps everything in one DB transaction
-      2. select_for_update()     — locks the ticket rows at PostgreSQL level
-      3. Status check            — verifies tickets are still AVAILABLE
-      4. Atomic update           — marks RESERVED, creates PENDING booking
-      5. Commit or rollback      — locks released, other requests proceed
-
-    nowait=True means: if another transaction already holds the lock,
-    raise OperationalError immediately instead of waiting forever.
-    This gives us a clean 409 Conflict rather than a request timeout.
+    Creates a booking with PostgreSQL row-level locking.
+    Guarantees zero double-bookings under concurrent load.
     """
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        request=BookingCreateSerializer,
+        responses=BookingSerializer,
+        examples=[
+            OpenApiExample(
+                name="Book two seats",
+                value={"event_id": 1, "ticket_ids": [1, 2]},
+                request_only=True,
+            )
+        ],
+    )
     def post(self, request: Request) -> Response:
         serializer = BookingCreateSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response(
-                serializer.errors,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            raise ValidationError(serializer.errors)
 
         event: Event = serializer.validated_data["event"]
         ticket_ids: list[int] = serializer.validated_data["ticket_ids"]
@@ -74,28 +97,20 @@ class BookingCreateView(APIView):
                 ticket_ids=ticket_ids,
             )
         except Ticket.DoesNotExist:
-            return Response(
-                {"detail": "One or more tickets not found for this event."},
-                status=status.HTTP_404_NOT_FOUND,
+            raise NotFound(
+                "One or more tickets not found for this event."
             )
         except OperationalError:
-            # Another transaction holds the lock on these tickets.
-            # nowait=True surfaces this immediately as 409 instead of hanging.
             logger.warning(
                 "Lock contention on tickets %s for event %s",
                 ticket_ids,
                 event.id,
             )
-            return Response(
-                {"detail": "These seats are currently being booked. Please try again."},
-                status=status.HTTP_409_CONFLICT,
+            raise ConflictError(
+                "These seats are currently being booked. Please try again."
             )
         except ValueError as e:
-            # Tickets are not AVAILABLE (already RESERVED or SOLD)
-            return Response(
-                {"detail": str(e)},
-                status=status.HTTP_409_CONFLICT,
-            )
+            raise ConflictError(str(e))
 
         output = BookingSerializer(booking)
         return Response(output.data, status=status.HTTP_201_CREATED)
@@ -108,23 +123,14 @@ class BookingCreateView(APIView):
         ticket_ids: list[int],
     ) -> Booking:
         """
-        Everything inside this method runs in a single atomic transaction.
+        Core booking logic inside atomic transaction.
 
-        select_for_update(nowait=True) acquires a row-level exclusive lock
-        on each requested ticket row. PostgreSQL holds these locks until the
-        transaction commits or rolls back.
-
-        If two requests race here:
-          - First one in: acquires locks, proceeds normally
-          - Second one in: hits OperationalError immediately (nowait=True)
-            → caller returns 409 Conflict
-
-        This is the gold standard for high-concurrency inventory systems.
+        select_for_update(nowait=True) acquires exclusive row-level
+        locks on ticket rows. If another transaction holds the lock,
+        raises OperationalError immediately (no waiting).
         """
 
-        # Acquire row-level locks on the requested tickets.
-        # order_by() ensures consistent lock ordering — prevents deadlocks
-        # when two requests try to lock the same tickets in different order.
+        # Acquire row-level locks — consistent ordering prevents deadlocks
         tickets = (
             Ticket.objects.select_for_update(nowait=True)
             .filter(id__in=ticket_ids, event=event)
@@ -134,9 +140,7 @@ class BookingCreateView(APIView):
         if tickets.count() != len(ticket_ids):
             raise Ticket.DoesNotExist
 
-        # Check every locked ticket is still AVAILABLE.
-        # This check happens AFTER locking, so the status can't change
-        # between our check and our write — that's the whole point.
+        # Check all locked tickets are still AVAILABLE
         unavailable = [
             t.seat_number
             for t in tickets
@@ -147,10 +151,8 @@ class BookingCreateView(APIView):
                 f"Seats {', '.join(unavailable)} are no longer available."
             )
 
-        # Calculate total price from the locked ticket data
         total_price = sum(t.price for t in tickets)
 
-        # Create the booking
         booking = Booking.objects.create(
             user=user,
             event=event,
@@ -158,14 +160,16 @@ class BookingCreateView(APIView):
             status=Booking.Status.PENDING,
         )
         booking.tickets.set(tickets)
-
-        # Mark tickets as RESERVED
         tickets.update(status=Ticket.Status.RESERVED)
 
-        # Decrement available_tickets on the event (denormalized field)
+        new_available = event.available_tickets - len(ticket_ids)
         Event.objects.filter(pk=event.pk).update(
-            available_tickets=event.available_tickets - len(ticket_ids)
+            available_tickets=new_available
         )
+
+        # Invalidate cache — availability has changed
+        cache.delete(EVENTS_CACHE_KEY)
+        logger.debug("Cache invalidated — available_tickets changed")
 
         logger.info(
             "Booking #%s created — user=%s event=%s tickets=%s total=%s",
@@ -177,3 +181,55 @@ class BookingCreateView(APIView):
         )
 
         return booking
+
+
+class BookingConfirmView(APIView):
+   
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses=BookingSerializer,
+        description=(
+            "Confirm a PENDING booking. "
+            "Triggers Celery task to generate PDF ticket and send email. "
+            "Booking must be confirmed within 10 minutes of creation."
+        ),
+    )
+    def post(self, request: Request, booking_id: int) -> Response:
+        try:
+            booking = Booking.objects.select_related(
+                "user", "event"
+            ).prefetch_related("tickets").get(
+                id=booking_id,
+                user=request.user,
+            )
+        except Booking.DoesNotExist:
+            raise NotFound("Booking not found.")
+
+        if booking.status != Booking.Status.PENDING:
+            raise ValidationError(
+                f"Booking is already {booking.status}."
+            )
+
+        expiry_time = booking.created_at + timedelta(minutes=10)
+        if timezone.now() > expiry_time:
+            raise ValidationError(
+                "Booking has expired. Please start again."
+            )
+
+        booking.status = Booking.Status.CONFIRMED
+        booking.save(update_fields=["status", "updated_at"])
+
+        booking.tickets.update(status=Ticket.Status.SOLD)
+
+        # Hand off to Celery — non-blocking
+        from .tasks import send_booking_confirmation
+        send_booking_confirmation.delay(booking.id)
+
+        logger.info(
+            "Booking #%s confirmed — Celery task dispatched",
+            booking.id,
+        )
+
+        output = BookingSerializer(booking)
+        return Response(output.data, status=status.HTTP_200_OK)
