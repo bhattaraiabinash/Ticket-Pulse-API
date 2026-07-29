@@ -22,6 +22,38 @@ class EventSerializer(serializers.ModelSerializer):
             "id", "title", "description", "date",
             "location", "total_capacity", "available_tickets",
         ]
+        extra_kwargs = {
+            "available_tickets": {"required": False},
+        }
+
+    def create(self, validated_data):
+        if "available_tickets" not in validated_data:
+            validated_data["available_tickets"] = validated_data.get("total_capacity", 20)
+        event = Event.objects.create(**validated_data)
+
+        # Auto-generate tickets for the event
+        capacity = event.total_capacity or 20
+        tickets = []
+        rows = ['A', 'B', 'C', 'D', 'E']
+        seats_per_row = max(1, capacity // len(rows))
+
+        created_count = 0
+        for r in rows:
+            for s in range(1, seats_per_row + 1):
+                if created_count >= capacity:
+                    break
+                price = Decimal("250.00") if r == 'A' else (Decimal("150.00") if r == 'B' else Decimal("80.00"))
+                tickets.append(Ticket(
+                    event=event,
+                    seat_number=f"{r}{s}",
+                    price=price,
+                    status=Ticket.Status.AVAILABLE
+                ))
+                created_count += 1
+
+        if tickets:
+            Ticket.objects.bulk_create(tickets)
+        return event
 
 
 class EventDetailSerializer(serializers.ModelSerializer):

@@ -61,6 +61,20 @@ class EventListView(APIView):
 
         return Response(data)
 
+    @extend_schema(request=EventSerializer, responses=EventSerializer)
+    def post(self, request: Request) -> Response:
+        if not request.user or not request.user.is_authenticated or not request.user.is_staff:
+            return Response(
+                {"error": "Only admin staff can create events.", "code": "FORBIDDEN"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        serializer = EventSerializer(data=request.data)
+        if serializer.is_valid():
+            event = serializer.save()
+            cache.delete(EVENTS_CACHE_KEY)
+            return Response(EventSerializer(event).data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 class BookingCreateView(APIView):
     """
