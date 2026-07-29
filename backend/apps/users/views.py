@@ -7,6 +7,7 @@ from drf_spectacular.utils import extend_schema
 from .serializers import UserSerializer, RegisterSerializer, LoginSerializer
 
 class RegisterView(APIView):
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     @extend_schema(request=RegisterSerializer, responses=UserSerializer)
@@ -19,6 +20,7 @@ class RegisterView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class LoginView(APIView):
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     @extend_schema(request=LoginSerializer, responses=UserSerializer)

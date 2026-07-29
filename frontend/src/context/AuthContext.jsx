@@ -40,9 +40,9 @@ export const AuthProvider = ({ children }) => {
   };
 
   const registerUser = async (username, email, password, phone_number) => {
-    localStorage.setItem('ticketpulse_auth', JSON.stringify({ username, password }));
     try {
       const userData = await authAPI.register({ username, email, password, phone_number });
+      localStorage.setItem('ticketpulse_auth', JSON.stringify({ username, password }));
       setUser(userData);
       return userData;
     } catch (err) {

@@ -6,6 +6,11 @@ from decimal import Decimal
 from django.utils import timezone
 from apps.users.models import User
 from apps.events.models import Event, Ticket, Booking
+from django.core.cache import cache
+
+@pytest.fixture(autouse=True)
+def clear_cache():
+    cache.clear()
 
 @pytest.fixture
 def user(db):
