@@ -1,39 +1,42 @@
-# Environment variables — NEVER push these
+# Environment variables
 .env
 .env.*
+*.env
 
 # Python
 venv/
+backend/venv/
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
 .Python
 *.egg-info/
-dist/
 build/
 
-# Testing
+# Node & Frontend
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+.oxlintrc.json
+
+# Testing & Coverage
 .pytest_cache/
+backend/.pytest_cache/
 .coverage
+backend/.coverage
 htmlcov/
 coverage.xml
 
-# Docker
+# Logs & Docker
 *.log
+cookies.txt
 
-# IDE
+# IDE & OS
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# OS
 .DS_Store
 Thumbs.db
-
-# Cookies (from curl testing)
-cookies.txt
-
-# SVG files generated during development
-*.svg
