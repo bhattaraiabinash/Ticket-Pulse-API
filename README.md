@@ -1,157 +1,140 @@
-# TicketPulse API
+# TicketPulse — Full-Stack Event Ticketing Platform
 
-A high-performance, production-grade Event Ticketing REST API built to demonstrate advanced backend engineering skills.
+A production-grade, high-performance Event Ticketing Web Application built with a Django REST Framework backend and a modern React 18 + Vite frontend.
 
+Designed to handle high-demand ticket sales (similar to Ticketmaster/BookMyShow) with zero double-bookings under concurrent load.
 
-## Tech Stack
+---
 
+## 🚀 Tech Stack
+
+### Backend (`/backend`)
 | Layer | Technology |
-|-------|-----------|
+|---|---|
 | Framework | Django 5.0 + Django REST Framework |
-| Database | PostgreSQL 16 |
-| Cache | Redis 7 |
-| Task Queue | Celery + Celery Beat |
-| Containerization | Docker + Docker Compose |
-| Documentation | OpenAPI 3.0 via drf-spectacular |
-| Testing | pytest + pytest-django |
+| Database | PostgreSQL 16 (Row-Level Locking `select_for_update`) |
+| Cache | Redis 7 (Cache-aside pattern on events endpoint) |
+| Task Queue | Celery + Celery Beat (PDF generation + email + auto-expiry) |
+| Containerization | Docker + Docker Compose (5 services) |
+| Documentation | OpenAPI 3.0 via drf-spectacular (Swagger UI & ReDoc) |
+| Testing | pytest — 58 test suite cases, 100% coverage |
 
-## Key Features
+### Frontend (`/frontend`)
+| Layer | Technology |
+|---|---|
+| Framework | React 18 + Vite |
+| Styling | Tailwind CSS (Deep Navy `#0F172A`, Electric Purple `#7C3AED`) |
+| API Client | Axios (with credentials & structured DRF error interceptor) |
+| Navigation | React Router v6 |
+| State & Cache | React Query (@tanstack/react-query) |
+| UI & Animations | Framer Motion + Lucide React + Canvas Confetti |
 
-### Concurrency Control
-Handles 1,000 simultaneous booking requests for the same seat without ever producing a double-booking. Implemented using PostgreSQL row-level locking via `select_for_update(nowait=True)` inside `transaction.atomic()`.
+---
 
-**Proven by a threading test:**
-10 simultaneous requests → exactly 1 success, 9 conflicts
+## 🔥 Key Engineering Features
 
-### Redis Caching (Cache-Aside Pattern)
-High-traffic `GET /api/v1/events/` endpoint uses Redis cache-aside pattern:
-- Cache HIT → returns in ~1ms (no database query)
-- Cache MISS → queries PostgreSQL, stores in Redis
-- Cache invalidated automatically when availability changes
+1. **Concurrency Control (PostgreSQL Row-Level Locking)**
+   - Uses `select_for_update(nowait=True)` inside `transaction.atomic()`.
+   - Proven by multi-threading concurrency tests: 10 simultaneous requests for the same seat → exactly 1 success, 9 conflict responses (`409 CONFLICT`).
 
-### Async Task Processing
-PDF ticket generation and email delivery are handled by Celery workers in the background. API responds in ~50ms regardless of how long the background work takes.
+2. **Redis Cache-Aside Architecture**
+   - High-traffic `GET /api/v1/events/` endpoint checks Redis first.
+   - **Cache HIT:** ~1ms latency.
+   - **Cache MISS:** Queries PostgreSQL, populates Redis cache (15-min TTL).
+   - Automatically invalidates cache whenever available ticket counts change.
 
-### Automated Booking Expiry
-Celery Beat runs a cleanup job every 60 seconds. PENDING bookings older than 10 minutes are automatically expired and seats returned to the pool — same pattern as real ticketing platforms.
+3. **Async Task Processing & Automated Expiry**
+   - Confirming a booking dispatches a Celery background task to generate PDF tickets with QR codes and send confirmation emails without blocking HTTP responses.
+   - Celery Beat worker runs every 60 seconds to expire `PENDING` bookings older than 10 minutes and return reserved seats back to the available pool.
 
-### Structured Error Handling
-Every error response is consistent JSON:
-```json
-{
-    "error": "Seats A1, A2 are no longer available.",
-    "code": "CONFLICT",
-    "status": 409
-}
+4. **Interactive SaaS Frontend**
+   - **Hero & Event Listing:** Live search, availability badges ("🔥 Only 3 seats left!"), loading skeletons.
+   - **Visual Seat Map Grid:** Color-coded seats (Available: Emerald, Selected: Purple, Reserved: Amber, Sold: Slate) with real-time price calculations.
+   - **10-Minute Expiry Countdown:** Synchronized countdown timer matching backend reservation expiry.
+   - **Sandbox Payment Simulation & Instant PDF Download:** Interactive modal with instant confirmation feedback.
+
+---
+
+## 📂 Project Structure
+
+```
+ticketpulse/
+├── backend/                  ← Django REST Framework Backend
+│   ├── apps/
+│   │   ├── events/           # Events, Tickets, Bookings views, serializers, tasks & tests
+│   │   └── users/            # Custom User model & Auth endpoints
+│   ├── config/
+│   │   ├── settings/         # Base & Dev settings (with CORS enabled)
+│   │   ├── celery_app.py     # Celery worker configuration
+│   │   └── urls.py           # API routing & OpenAPI docs
+│   ├── docker-compose.yml    # Orchestrates PostgreSQL, Redis, Web, Celery Worker & Beat
+│   ├── Dockerfile
+│   ├── pytest.ini
+│   └── requirements.txt
+├── frontend/                 ← React 18 + Vite Frontend
+│   ├── src/
+│   │   ├── components/       # Navbar, Footer, SeatMap, CountdownTimer, Modals, Toast
+│   │   ├── context/          # AuthContext provider
+│   │   ├── pages/            # Home, EventsList, EventDetail, Booking, Confirmation, Auth
+│   │   ├── services/         # Axios API service layer
+│   │   ├── App.jsx
+│   │   └── main.jsx
+│   ├── package.json
+│   └── vite.config.js
+└── README.md
 ```
 
-## API Endpoints
+---
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/events/` | List all events (Redis cached) |
-| POST | `/api/v1/bookings/` | Create a booking (concurrency-safe) |
-| POST | `/api/v1/bookings/{id}/confirm/` | Confirm booking + trigger PDF/email |
-| GET | `/health/` | Health check |
-| GET | `/api/docs/` | Swagger UI |
-| GET | `/api/redoc/` | ReDoc documentation |
-
-## Architecture
-          
-   Client    ────▶   Django    ────▶ PostgreSQL  
-                        +           
-                       DRF      
-
-
-┌────────────┼────────────┐
-                           
-Redis     Celery        Celery  
-Cache     Worker        Beat   
-    
-
-## Test Coverage
-58 tests - 100% code coverage
-
-| Test Suite        | Tests | Coverage |
-|-----------        |-------|----------|
-| API endpoints     | 24    | 100% |
-| Models            | 10    | 100% |
-| Celery tasks      | 8     | 100% |
-| Concurrency       | 1     | 100% |
-| Error handling    | 6    | 100% |
-| Management commands| 4 | 100% |
-| Users | 1 | 100% |
-
-## Getting Started
+## 🛠️ Quick Start Guide
 
 ### Prerequisites
-- Docker
-- Docker Compose
+- Python 3.12+ / Node.js 18+
+- Docker & Docker Compose (Optional for containerized run)
 
-### Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/YOUR_USERNAME/ticketpulse-api.git
-cd ticketpulse-api
-
-# Copy environment variables
-cp .env.example .env
-
-# Build and start all services
-docker compose up -d --build
-
-# Run database migrations
-docker compose exec web python manage.py migrate
-
-# Create superuser
-docker compose exec web python manage.py createsuperuser
-
-# Set up periodic tasks
-docker compose exec web python manage.py setup_periodic_tasks
-```
-
-### Access
-
-| Service | URL |
-|---------|----|
-| API Documentation | http://localhost:8000/api/docs/ |
-| Admin Panel | http://localhost:8000/admin/ |
-| Health Check | http://localhost:8000/health/ |
-
-### Running Tests
+### Running Backend (Django)
 
 ```bash
-# Run all tests
-docker compose exec web pytest -v
+cd backend
+python -m venv venv
+source venv/bin/activate # or venv\Scripts\activate on Windows
+pip install -r requirements.txt
 
-# Run with coverage report
-docker compose exec web pytest -v --cov=apps --cov-report=term-missing
+# Run migrations & development server
+python manage.py migrate
+python manage.py runserver
 ```
+The Django API server will run at `http://localhost:8000`.
 
-## Project Structure
-ticketpulse/
-├── apps/
-│   ├── events/
-│   │   ├── models.py        # Event, Ticket, Booking models
-│   │   ├── views.py         # API views with caching + locking
-│   │   ├── serializers.py   # DRF serializers
-│   │   ├── tasks.py         # Celery tasks (PDF, email, expiry)
-│   │   ├── exceptions.py    # Custom exception handler
-│   │   └── tests/           # 58 tests, 100% coverage
-│   └── users/
-│       └── models.py        # Custom User model
-├── config/
-│   ├── settings/
-│   │   ├── base.py          # Base settings
-│   │   └── dev.py           # Development settings
-│   ├── celery_app.py        # Celery configuration
-│   └── urls.py              # URL routing
-├── docker-compose.yml       # 5 services orchestration
-├── Dockerfile
-└── requirements.txt
+### Running Frontend (React)
 
-## Author
+```bash
+cd frontend
+npm install
+npm run dev
+```
+The React application will run at `http://localhost:5173`.
 
-**Abinash Bhattarai**
-Fullstack Engineer - Kathmandu, Nepal
+---
+
+## 🌐 API Endpoints Reference
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/v1/events/` | List all events (Redis cached) |
+| `GET` | `/api/v1/events/{id}/` | Get single event details + visual seat map tickets |
+| `POST` | `/api/v1/bookings/` | Create pending booking (Row-level locked) |
+| `GET` | `/api/v1/bookings/{id}/` | Get booking details |
+| `POST` | `/api/v1/bookings/{id}/confirm/` | Confirm booking & trigger Celery PDF+Email |
+| `POST` | `/api/v1/users/register/` | User registration |
+| `POST` | `/api/v1/users/login/` | User login & session setup |
+| `GET` | `/health/` | API Health check |
+| `GET` | `/api/docs/` | Swagger UI OpenAPI Documentation |
+
+---
+
+## 👤 Author
+
+**Abinash Bhattarai**  
+Fullstack Engineer — Kathmandu, Nepal  
+GitHub: [bhattaraiabinash](https://github.com/bhattaraiabinash)
