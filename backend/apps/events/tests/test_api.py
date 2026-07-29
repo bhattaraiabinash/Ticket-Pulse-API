@@ -25,9 +25,9 @@ class TestHealthCheck:
 
 class TestEventListAPI:
 
-    def test_unauthenticated_request_returns_401(self, client):
+    def test_unauthenticated_request_returns_200(self, client, event):
         response = client.get("/api/v1/events/")
-        assert response.status_code == 403
+        assert response.status_code == 200
 
     def test_authenticated_request_returns_200(self, api_client, event):
         response = api_client.get("/api/v1/events/")

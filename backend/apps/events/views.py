@@ -7,7 +7,7 @@ from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiExample
 from rest_framework import status
 from rest_framework.exceptions import NotFound, ValidationError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -36,7 +36,7 @@ class EventListView(APIView):
     Cache HIT  → return from Redis (no DB query)
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     @extend_schema(responses=EventSerializer(many=True))
     def get(self, request: Request) -> Response:
@@ -242,7 +242,7 @@ class EventDetailView(APIView):
 
     Returns single event details including seat map tickets.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     @extend_schema(responses=EventDetailSerializer)
     def get(self, request: Request, pk: int) -> Response:
