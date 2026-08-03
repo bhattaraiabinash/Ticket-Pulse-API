@@ -1,8 +1,8 @@
-# TicketPulse — Full-Stack Event Ticketing Platform
+# TicketPulse — Enterprise SaaS Event Ticketing Platform
 
-A production-grade, high-performance Event Ticketing Web Application built with a Django REST Framework backend and a modern React 18 + Vite frontend.
+A production-grade, high-performance Event Ticketing Web Application competing with Ticketmaster, BookMyShow, and Khalti Events in Nepal & South Asia. Built with a **Django 5.0 REST Framework** backend and a high-end **React 18 + TypeScript + Vite + Tailwind CSS** frontend.
 
-Designed to handle high-demand ticket sales (similar to Ticketmaster/BookMyShow) with zero double-bookings under concurrent load.
+Tagline: *"Every seat. Every moment. Perfectly placed."*
 
 ---
 
@@ -16,104 +16,61 @@ Designed to handle high-demand ticket sales (similar to Ticketmaster/BookMyShow)
 | Cache | Redis 7 (Cache-aside pattern on events endpoint) |
 | Task Queue | Celery + Celery Beat (PDF generation + email + auto-expiry) |
 | Containerization | Docker + Docker Compose (5 services) |
-| Documentation | OpenAPI 3.0 via drf-spectacular (Swagger UI & ReDoc) |
+| Documentation | OpenAPI 3.0 via drf-spectacular (Swagger UI & ReDoc at `/api/docs/`) |
 | Testing | pytest — 58 test suite cases, 100% coverage |
 
 ### Frontend (`/frontend`)
 | Layer | Technology |
 |---|---|
-| Framework | React 18 + Vite |
-| Styling | Tailwind CSS (Deep Navy `#0F172A`, Electric Purple `#7C3AED`) |
-| API Client | Axios (with credentials & structured DRF error interceptor) |
+| Framework | React 18 + Vite + TypeScript |
+| Styling | Tailwind CSS (Indigo `#6366F1`, Purple `#8B5CF6`, Amber `#F59E0B`) |
+| Animations | Framer Motion + Canvas Confetti + Particle Canvas |
+| State Management | Zustand (`useStore`) + React Query (@tanstack/react-query) |
+| API Client | Axios (with session credentials & structured DRF error interceptor) |
 | Navigation | React Router v6 |
-| State & Cache | React Query (@tanstack/react-query) |
-| UI & Animations | Framer Motion + Lucide React + Canvas Confetti |
+| Notifications | React Hot Toast |
+| Icons | Lucide React |
 
 ---
 
-## 🔥 Key Engineering Features
+## 🔥 Key Features
 
-1. **Concurrency Control (PostgreSQL Row-Level Locking)**
-   - Uses `select_for_update(nowait=True)` inside `transaction.atomic()`.
-   - Proven by multi-threading concurrency tests: 10 simultaneous requests for the same seat → exactly 1 success, 9 conflict responses (`409 CONFLICT`).
+1. **PostgreSQL Row-Level Locking**
+   - Uses `select_for_update(nowait=True)` inside `transaction.atomic()` to guarantee 0 double bookings under concurrent seat selection.
 
 2. **Redis Cache-Aside Architecture**
-   - High-traffic `GET /api/v1/events/` endpoint checks Redis first.
-   - **Cache HIT:** ~1ms latency.
-   - **Cache MISS:** Queries PostgreSQL, populates Redis cache (15-min TTL).
-   - Automatically invalidates cache whenever available ticket counts change.
+   - High-traffic `GET /api/v1/events/` endpoint checks Redis first (~1ms response time) and invalidates automatically on ticket reservation.
 
-3. **Async Task Processing & Automated Expiry**
-   - Confirming a booking dispatches a Celery background task to generate PDF tickets with QR codes and send confirmation emails without blocking HTTP responses.
-   - Celery Beat worker runs every 60 seconds to expire `PENDING` bookings older than 10 minutes and return reserved seats back to the available pool.
+3. **10-Minute Concurrency Reservation Timer**
+   - Visual 10-minute timer for seat holds with auto-redirection on expiration.
 
-4. **Interactive SaaS Frontend**
-   - **Hero & Event Listing:** Live search, availability badges ("🔥 Only 3 seats left!"), loading skeletons.
-   - **Visual Seat Map Grid:** Color-coded seats (Available: Emerald, Selected: Purple, Reserved: Amber, Sold: Slate) with real-time price calculations.
-   - **10-Minute Expiry Countdown:** Synchronized countdown timer matching backend reservation expiry.
-   - **Sandbox Payment Simulation & Instant PDF Download:** Interactive modal with instant confirmation feedback.
+4. **Floating AI Assistant ChatBot**
+   - Embedded ticket bot capable of querying live available events, explaining booking steps, and answering ticketing FAQs.
 
----
+5. **Visual Seat Selection Map**
+   - Interactive grid (Rows A-E) displaying status (Available: Emerald, Selected: Amber, Occupied: Rose).
 
-## 📂 Project Structure
-
-```
-ticketpulse/
-├── backend/                  ← Django REST Framework Backend
-│   ├── apps/
-│   │   ├── events/           # Events, Tickets, Bookings views, serializers, tasks & tests
-│   │   └── users/            # Custom User model & Auth endpoints
-│   ├── config/
-│   │   ├── settings/         # Base & Dev settings (with CORS enabled)
-│   │   ├── celery_app.py     # Celery worker configuration
-│   │   └── urls.py           # API routing & OpenAPI docs
-│   ├── docker-compose.yml    # Orchestrates PostgreSQL, Redis, Web, Celery Worker & Beat
-│   ├── Dockerfile
-│   ├── pytest.ini
-│   └── requirements.txt
-├── frontend/                 ← React 18 + Vite Frontend
-│   ├── src/
-│   │   ├── components/       # Navbar, Footer, SeatMap, CountdownTimer, Modals, Toast
-│   │   ├── context/          # AuthContext provider
-│   │   ├── pages/            # Home, EventsList, EventDetail, Booking, Confirmation, Auth
-│   │   ├── services/         # Axios API service layer
-│   │   ├── App.jsx
-│   │   └── main.jsx
-│   ├── package.json
-│   └── vite.config.js
-└── README.md
-```
+6. **Dark / Light Glassmorphism Theme**
+   - Smooth 300ms CSS transition between dark `#0A0A0F` and light `#FFFFFF` modes with system preference detection & localStorage persistence.
 
 ---
 
-## 🛠️ Quick Start Guide
-
-### Prerequisites
-- Python 3.12+ / Node.js 18+
-- Docker & Docker Compose (Optional for containerized run)
-
-### Running Backend (Django)
+## 🛠️ Quick Start
 
 ```bash
+# 1. Backend (Django)
 cd backend
 python -m venv venv
-source venv/bin/activate # or venv\Scripts\activate on Windows
+source venv/bin/activate
 pip install -r requirements.txt
-
-# Run migrations & development server
 python manage.py migrate
 python manage.py runserver
-```
-The Django API server will run at `http://localhost:8000`.
 
-### Running Frontend (React)
-
-```bash
+# 2. Frontend (React + Vite + TypeScript)
 cd frontend
 npm install
 npm run dev
 ```
-The React application will run at `http://localhost:5173`.
 
 ---
 
@@ -122,19 +79,19 @@ The React application will run at `http://localhost:5173`.
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/v1/events/` | List all events (Redis cached) |
-| `GET` | `/api/v1/events/{id}/` | Get single event details + visual seat map tickets |
+| `GET` | `/api/v1/events/{id}/` | Get single event details + visual seat map |
 | `POST` | `/api/v1/bookings/` | Create pending booking (Row-level locked) |
 | `GET` | `/api/v1/bookings/{id}/` | Get booking details |
-| `POST` | `/api/v1/bookings/{id}/confirm/` | Confirm booking & trigger Celery PDF+Email |
+| `POST` | `/api/v1/bookings/{id}/confirm/` | Confirm booking & dispatch PDF + Email Celery task |
 | `POST` | `/api/v1/users/register/` | User registration |
-| `POST` | `/api/v1/users/login/` | User login & session setup |
+| `POST` | `/api/v1/users/login/` | User login |
 | `GET` | `/health/` | API Health check |
-| `GET` | `/api/docs/` | Swagger UI OpenAPI Documentation |
+| `GET` | `/api/docs/` | OpenAPI 3.0 Swagger UI |
 
 ---
 
 ## 👤 Author
 
 **Abinash Bhattarai**  
-Fullstack Engineer — Kathmandu, Nepal  
+Fullstack Senior Software Engineer — Nepal  
 GitHub: [bhattaraiabinash](https://github.com/bhattaraiabinash)
